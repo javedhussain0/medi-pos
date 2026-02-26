@@ -1,30 +1,50 @@
-import User from "../modules/User.js"
-import bcrypt from "bcryptjs"
-import jwt from "jsonwebtoken"
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import User from "../modules/User.js";
 
-export const register = async (req , res)=>{
-    const {name, email, password, phone, avatar,role} = req.body;
-    try{
-        let user = await User.findOne({email});
-        if(user){
-            return res.status(400).json({message : "User already exists"});
-        }   
-        user = new User({
-            name,
-            email,
-            password,
-            phone,
-            avatar,
-            role
-        });
-        await user.save();
-        res.status(201).json({message : "User registered successfully"});
-    }catch(error){
-        res.status(500).json({message : "Registration failed"});
-        console.error(error);
+const createToken = (user) =>
+  jwt.sign({ id: user._id, role: user.role }, process.env.JWT_SECRET, {
+    expiresIn: "1d",
+  });
 
+export const register = async (req, res) => {
+  const { name, email, password, phone, avatar, role } = req.body;
+
+  try {
+    if (!name || !email || !password || !phone) {
+      return res.status(400).json({ message: "name, email, phone and password are required" });
     }
-}
+
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: "User already exists" });
+    }
+
+    const user = await User.create({
+      name,
+      email,
+      password,
+      phone,
+      avatar,
+      role,
+    });
+
+    return res.status(201).json({
+      message: "User registered successfully",
+      token: createToken(user),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar,
+        phone: user.phone,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Registration failed", error: error.message });
+  }
+};
 
 export const login = async (req, res) => {
   const { email, password } = req.body;
@@ -39,71 +59,75 @@ export const login = async (req, res) => {
     if (!user) {
       return res.status(400).json({ message: "Please register first" });
     }
+
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(400).json({ message: "Invalid credentials" });
     }
-    const token = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "1d" }
-    );
-    res.status(200).json({
+
+    return res.status(200).json({
       message: "Login Successful",
-      token,
+      token: createToken(user),
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
         avatar: user.avatar,
-        phone: user.phone
-      }
+        phone: user.phone,
+      },
     });
-
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: "Login failed" });
+    return res.status(500).json({ message: "Login failed", error: error.message });
   }
 };
 
-export const updateMyProfile = async ()=>{
-  try{
-    const updatedUser = await User.findByIdAndUpdate(
-      req.user.id,
-      req.body
-    ).select("-password");
-    res.json(updatedUser);
+export const getMyProfile = async (req, res) => {
+  return res.status(200).json(req.user);
+};
 
-  }catch(err){
-    console.log(err);
-    res.status(200).json({
-      message:"cant update your profile "
-    })
+export const updateMyProfile = async (req, res) => {
+  try {
+    const allowedFields = ["name", "phone", "avatar"];
+    const updates = {};
 
-  }
-  
-}
-export const changePassword = async (res,req)=>{
-  const{oldPassword, newPassword}= req.body;
-  try{
-    const user = await User.findById(req.user.id);
-    const isMatch = await bcrypt.compare(oldPassword, user.password);
-    if(!isMatch){
-      return res.status(401).json({
-        message: "old password is incorrect"
-      });
-      const salt = await bcrypt.genSalt(10);
-      user.password = await bcrypt.hash(newPassword, salt);
-      await user.save();
-      res.json({message:"password updated successfully"});
-
+    for (const key of allowedFields) {
+      if (req.body[key] !== undefined) {
+        updates[key] = req.body[key];
+      }
     }
 
-  }catch(err){
-    console.log(err);
-    res.status(200).json({
-      message: "cant change your password"
-    })
+    const updatedUser = await User.findByIdAndUpdate(req.user._id, updates, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
+
+    return res.status(200).json(updatedUser);
+  } catch (error) {
+    return res.status(500).json({ message: "Cannot update profile", error: error.message });
   }
-}
+};
+
+export const changePassword = async (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+
+  try {
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({ message: "oldPassword and newPassword are required" });
+    }
+
+    const user = await User.findById(req.user._id).select("+password");
+    const isMatch = await bcrypt.compare(oldPassword, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({ message: "Old password is incorrect" });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    return res.status(200).json({ message: "Password updated successfully" });
+  } catch (error) {
+    return res.status(500).json({ message: "Cannot change password", error: error.message });
+  }
+};

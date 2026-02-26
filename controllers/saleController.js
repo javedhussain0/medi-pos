@@ -1,116 +1,96 @@
-import Sale from "../modules/Sale";
-import Medicine from "../modules/Medicine";
-import Customer from "../modules/Customer";
-
+import Medicine from "../modules/Medicine.js";
+import Sale from "../modules/Sale.js";
 
 export const createSale = async (req, res) => {
-    try {
-        const { billNo, CustomerId, date, mobileNo, item, totalAmount, gst } = req.body;
-        const newSale = new Sale({
-            billNo,
-            CustomerId,
-            date,
-            mobileNo,
-            item,
-            totalAmount,
-            gst
-        });
-        await newSale.save();
-       totalAmount = 0;
-      for (const soldItem of item){
-        const medicines = await Medicine.findById(soldItem.medicineId);
-        if(medicines){
-            if(medicines.stock >= soldItem.quantity){
-                medicines.stock -= soldItem.quantity;
-                await medicines.save();
-                totalAmount += soldItem.quantity * medicines.price;
-            }else{
-                return res.status(400).json({message : `Insufficient stock for medicine ID: ${soldItem.medicineId}`});  
-            }
+  try {
+    const { billNo, customerId, date, mobileNo, items = [], gst = 0 } = req.body;
 
-        }
-        
-      }
-        
-            
-        res.status(201).json(newSale);
-        res.status(200).json({message : "bill generate successfully"});
-    }catch(error){
-        res.status(500).json({message : error.message});
+    if (!billNo || !customerId || !mobileNo || items.length === 0) {
+      return res.status(400).json({ message: "billNo, customerId, mobileNo and items are required" });
     }
+
+    let totalAmount = 0;
+    const normalizedItems = [];
+
+    for (const soldItem of items) {
+      const medicine = await Medicine.findById(soldItem.medicineId);
+      if (!medicine) {
+        return res.status(404).json({ message: `Medicine not found: ${soldItem.medicineId}` });
+      }
+
+      if (medicine.stock < soldItem.quantity) {
+        return res.status(400).json({ message: `Insufficient stock for ${medicine.name}` });
+      }
+
+      const price = medicine.sellingPrice;
+      const subtotal = soldItem.quantity * price;
+
+      medicine.stock -= soldItem.quantity;
+      await medicine.save();
+
+      totalAmount += subtotal;
+      normalizedItems.push({
+        medicineId: medicine._id,
+        quantity: soldItem.quantity,
+        price,
+        subtotal,
+      });
+    }
+
+    const sale = await Sale.create({
+      billNo,
+      customerId,
+      date,
+      mobileNo,
+      items: normalizedItems,
+      totalAmount,
+      gst,
+    });
+
+    return res.status(201).json(sale);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to create sale", error: error.message });
+  }
 };
 
-export const getSales = async (req, res) => {
-    try{
-        const sales = await Sale.find();
-        res.status(200).json(sales);
+export const getSales = async (_req, res) => {
+  try {
+    const sales = await Sale.find()
+      .populate("customerId", "name phone")
+      .populate("items.medicineId", "name brand")
+      .sort({ createdAt: -1 });
 
-
-    }catch(error){
-        res.status(500).json({message : error.message});
-    }
-}
+    return res.status(200).json(sales);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch sales", error: error.message });
+  }
+};
 
 export const getSaleById = async (req, res) => {
-    try{
-        const { id } = req.params;
-        const sale = await Sale.find
-        ById(id);;
-        res.status(200).json(sale); 
-    }catch(error){
-        res.status(500).json({message : error.message});
-        
-    }
-}
-export const updateSale = async (req, res) => {
-    try{
-        const { id } = req.params;
-        const { billNo, CustomerId, date, mobileNo, item, totalAmount, gst } = req.body;
-        const updatedSale = await Sale.findByIdAndUpdate(id, {
-            billNo,
-            CustomerId,
-            date,
-            mobileNo,
-            item,
-            totalAmount,
-            gst
-        }, { new: true });
-        res.status(200).json(updatedSale);
+  try {
+    const sale = await Sale.findById(req.params.id)
+      .populate("customerId", "name phone")
+      .populate("items.medicineId", "name brand");
 
-
-    }catch(error){
-        res.status(500).json({message : error.message});
+    if (!sale) {
+      return res.status(404).json({ message: "Sale not found" });
     }
-}
+
+    return res.status(200).json(sale);
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to fetch sale", error: error.message });
+  }
+};
 
 export const deleteSale = async (req, res) => {
-    try{
-        const { id } = req.params;  
-        await Sale.findByIdAndDelete(id);
-    }catch(error){
-        res.status(500).json({message : error.message});
+  try {
+    const sale = await Sale.findByIdAndDelete(req.params.id);
+    if (!sale) {
+      return res.status(404).json({ message: "Sale not found" });
     }
-};
- export const Medicine = async (req, res) => {
-    try{
-        const medicines = await Medicine.find();
-        res.status(200).json(medicines);
-    }
-    catch(error){
-        res.status(500).json({message : error.message});
-    }
-};
 
-const updateMedicineBIll = async (medicineId, quantitySold) => {
-    try {
-        const medicine = await Medicine.findById(medicineId);
-        if (medicine) {
-            if (medicine.stock >= quantitySold) {    
-                medicine.stock -= quantitySold;
-                await medicine.save();
-            }
-        }
-    } catch (error) {
-        console.error("Error updating medicine stock:", error);
-    }
+    return res.status(200).json({ message: "Sale deleted successfully" });
+  } catch (error) {
+    return res.status(500).json({ message: "Failed to delete sale", error: error.message });
+  }
 };

@@ -1,52 +1,73 @@
 import mongoose from "mongoose";
 
-
-const saleShema = new mongoose.Schema({
-    billNo: {
-        type: Number,
-        required: true,
-        unique: true,
-
+const saleItemSchema = new mongoose.Schema(
+  {
+    medicineId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Medicine",
+      required: true,
     },
-    CustomerId: {
-        name: String,
-        required: true,
-        trim: true,
-        minlength: 2
+    quantity: {
+      type: Number,
+      required: true,
+      min: 1,
+    },
+    price: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    subtotal: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+  },
+  { _id: false }
+);
+
+const saleSchema = new mongoose.Schema(
+  {
+    billNo: {
+      type: Number,
+      required: true,
+      unique: true,
+    },
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      required: true,
     },
     date: {
-        type: Date,
-        required: true,
-        default: Date.now
-
-
+      type: Date,
+      required: true,
+      default: Date.now,
     },
     mobileNo: {
-        type: Number,
-        required: true,
-        trim: true,
-        minlength: 10,
-
-
+      type: String,
+      required: true,
+      trim: true,
+      minlength: 10,
+      maxlength: 10,
     },
-    item: {
-        type: Array,
-        required: true,
+    items: {
+      type: [saleItemSchema],
+      required: true,
+      validate: [(items) => items.length > 0, "At least one item is required"],
     },
     totalAmount: {
-        type: Number,
-        required: true,
-
+      type: Number,
+      required: true,
+      min: 0,
     },
     gst: {
-        type: Number,
-        required: true,
-        default: 0
-    }
-},
-    {
-        timestamps: true
-    })
+      type: Number,
+      default: 0,
+      min: 0,
+    },
+  },
+  { timestamps: true }
+);
 
-export default mongoose.model("Sale", saleShema);
-const Sale = mongoose.model("Sale", saleShema);
+const Sale = mongoose.model("Sale", saleSchema);
+export default Sale;
